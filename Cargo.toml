@@ -2,22 +2,26 @@
 resolver = "2"
 members = [
   "discriminator",
+  "discriminator-derive",
+  "discriminator-syn",
   "generic-token",
   "generic-token-tests",
   "pod",
   "program-error",
+  "program-error-derive",
   "tlv-account-resolution",
   "type-length-value",
+  "type-length-value-derive",
   "type-length-value-derive-test",
 ]
 
 [workspace.metadata.cli]
-solana = "2.2.0"
+solana = "2.3.4"
 
 # Specify Rust toolchains for rustfmt, clippy, and build.
 # Any unprovided toolchains default to stable.
 [workspace.metadata.toolchains]
-nightly = "nightly-2024-11-22"
+nightly = "nightly-2025-02-16"
 
 [workspace.metadata.spellcheck]
 config = "scripts/spellcheck.toml"

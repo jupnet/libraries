@@ -1,13 +1,13 @@
 use {
     rand::prelude::*,
+    solana_program_pack::Pack,
     spl_generic_token::{generic_token, token, token_2022},
-    spl_token::{
-        solana_program::program_pack::Pack,
-        state::{Account as SplAccount, AccountState as SplAccountState, Mint as SplMint},
-    },
-    spl_token_2022::{
+    spl_token_2022_interface::{
         extension::set_account_type,
         state::{Account as SplAccount2022, Mint as SplMint2022, Multisig as SplMultisig},
+    },
+    spl_token_interface::state::{
+        Account as SplAccount, AccountState as SplAccountState, Mint as SplMint,
     },
     test_case::test_case,
 };
@@ -19,21 +19,26 @@ fn test_get_packed_len() {
 }
 
 fn random_token_account() -> SplAccount {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
 
     let mint = solana_pubkey::new_rand();
     let owner = solana_pubkey::new_rand();
-    let amount = rng.gen();
-    let delegate = if rng.gen() {
+    let amount = rng.random();
+    let delegate = if rng.random() {
         Some(solana_pubkey::new_rand())
     } else {
         None
     }
     .into();
-    let state = rng.gen_range(0..3).try_into().unwrap();
-    let is_native = rng.gen::<Option<u64>>().into();
-    let delegated_amount = rng.gen();
-    let close_authority = if rng.gen() {
+    let state = rng.random_range(0..3).try_into().unwrap();
+    let is_native = if rng.random() {
+        Some(rng.random())
+    } else {
+        None
+    }
+    .into();
+    let delegated_amount = rng.random();
+    let close_authority = if rng.random() {
         Some(solana_pubkey::new_rand())
     } else {
         None
@@ -80,23 +85,41 @@ fn test_generic_account(is_token_2022_account: bool) {
             let test_account =
                 generic_token::Account::unpack(&account_data, &token_2022::id()).unwrap();
 
-            assert_eq!(test_account.mint, expected_account.mint);
-            assert_eq!(test_account.owner, expected_account.owner);
+            assert_eq!(
+                test_account.mint.to_bytes(),
+                expected_account.mint.to_bytes()
+            );
+            assert_eq!(
+                test_account.owner.to_bytes(),
+                expected_account.owner.to_bytes()
+            );
             assert_eq!(test_account.amount, expected_account.amount);
         } else if is_initialized {
             // token
             let test_account = generic_token::Account::unpack(&account_data, &token::id()).unwrap();
 
-            assert_eq!(test_account.mint, expected_account.mint);
-            assert_eq!(test_account.owner, expected_account.owner);
+            assert_eq!(
+                test_account.mint.to_bytes(),
+                expected_account.mint.to_bytes()
+            );
+            assert_eq!(
+                test_account.owner.to_bytes(),
+                expected_account.owner.to_bytes()
+            );
             assert_eq!(test_account.amount, expected_account.amount);
 
             // token22
             let test_account =
                 generic_token::Account::unpack(&account_data, &token_2022::id()).unwrap();
 
-            assert_eq!(test_account.mint, expected_account.mint);
-            assert_eq!(test_account.owner, expected_account.owner);
+            assert_eq!(
+                test_account.mint.to_bytes(),
+                expected_account.mint.to_bytes()
+            );
+            assert_eq!(
+                test_account.owner.to_bytes(),
+                expected_account.owner.to_bytes()
+            );
             assert_eq!(test_account.amount, expected_account.amount);
         } else {
             // token
@@ -136,18 +159,18 @@ fn test_generic_account(is_token_2022_account: bool) {
 }
 
 fn random_mint() -> SplMint {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
 
-    let mint_authority = if rng.gen() {
+    let mint_authority = if rng.random() {
         Some(solana_pubkey::new_rand())
     } else {
         None
     }
     .into();
-    let supply = rng.gen();
-    let decimals = rng.gen();
-    let is_initialized = rng.gen();
-    let freeze_authority = if rng.gen() {
+    let supply = rng.random();
+    let decimals = rng.random();
+    let is_initialized = rng.random();
+    let freeze_authority = if rng.random() {
         Some(solana_pubkey::new_rand())
     } else {
         None

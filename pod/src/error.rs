@@ -1,13 +1,20 @@
 //! Error types
 use {
-    solana_decode_error::DecodeError,
-    solana_msg::msg,
-    solana_program_error::{PrintProgramError, ProgramError},
+    solana_program_error::{ProgramError, ToStr},
+    std::num::TryFromIntError,
 };
 
 /// Errors that may be returned by the spl-pod library.
 #[repr(u32)]
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, num_derive::FromPrimitive)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    thiserror::Error,
+    num_enum::TryFromPrimitive,
+    num_derive::FromPrimitive,
+)]
 pub enum PodSliceError {
     /// Error in checked math operation
     #[error("Error in checked math operation")]
@@ -18,6 +25,9 @@ pub enum PodSliceError {
     /// Provided byte buffer too large for expected type
     #[error("Provided byte buffer too large for expected type")]
     BufferTooLarge,
+    /// An integer conversion failed because the value was out of range for the target type
+    #[error("An integer conversion failed because the value was out of range for the target type")]
+    ValueOutOfRange,
 }
 
 impl From<PodSliceError> for ProgramError {
@@ -26,31 +36,19 @@ impl From<PodSliceError> for ProgramError {
     }
 }
 
-impl<T> solana_decode_error::DecodeError<T> for PodSliceError {
-    fn type_of() -> &'static str {
-        "PodSliceError"
+impl ToStr for PodSliceError {
+    fn to_str(&self) -> &'static str {
+        match self {
+            PodSliceError::CalculationFailure => "Error in checked math operation",
+            PodSliceError::BufferTooSmall => "Provided byte buffer too small for expected type",
+            PodSliceError::BufferTooLarge => "Provided byte buffer too large for expected type",
+            PodSliceError::ValueOutOfRange => "An integer conversion failed because the value was out of range for the target type"
+        }
     }
 }
 
-impl PrintProgramError for PodSliceError {
-    fn print<E>(&self)
-    where
-        E: 'static
-            + std::error::Error
-            + DecodeError<E>
-            + PrintProgramError
-            + num_traits::FromPrimitive,
-    {
-        match self {
-            PodSliceError::CalculationFailure => {
-                msg!("Error in checked math operation")
-            }
-            PodSliceError::BufferTooSmall => {
-                msg!("Provided byte buffer too small for expected type")
-            }
-            PodSliceError::BufferTooLarge => {
-                msg!("Provided byte buffer too large for expected type")
-            }
-        }
+impl From<TryFromIntError> for PodSliceError {
+    fn from(_: TryFromIntError) -> Self {
+        PodSliceError::ValueOutOfRange
     }
 }

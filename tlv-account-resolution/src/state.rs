@@ -7,7 +7,10 @@ use {
     solana_program_error::ProgramError,
     solana_pubkey::Pubkey,
     spl_discriminator::SplDiscriminate,
-    spl_pod::slice::{PodSlice, PodSliceMut},
+    spl_pod::{
+        list::{self, ListView},
+        primitives::PodU32,
+    },
     spl_type_length_value::state::{TlvState, TlvStateBorrowed, TlvStateMut},
     std::future::Future,
 };
@@ -30,28 +33,25 @@ fn account_info_to_meta(account_info: &AccountInfo) -> AccountMeta {
 
 /// De-escalate an account meta if necessary
 fn de_escalate_account_meta(account_meta: &mut AccountMeta, account_metas: &[AccountMeta]) {
-    // This is a little tricky to read, but the idea is to see if
-    // this account is marked as writable or signer anywhere in
-    // the instruction at the start. If so, DON'T escalate it to
-    // be a writer or signer in the CPI
+    // This is a little tricky to read, but checks if this account is marked as
+    // writable in the instruction. If it's read-only, de-escalate it to read-only
+    // in the CPI.
     let maybe_highest_privileges = account_metas
         .iter()
         .filter(|&x| x.pubkey == account_meta.pubkey)
-        .map(|x| (x.is_signer, x.is_writable))
-        .reduce(|acc, x| (acc.0 || x.0, acc.1 || x.1));
+        .map(|x| x.is_writable)
+        .reduce(|acc, x| acc || x);
     // If `Some`, then the account was found somewhere in the instruction
-    if let Some((is_signer, is_writable)) = maybe_highest_privileges {
-        if !is_signer && is_signer != account_meta.is_signer {
-            // Existing account is *NOT* a signer already, but the CPI
-            // wants it to be, so de-escalate to not be a signer
-            account_meta.is_signer = false;
-        }
+    if let Some(is_writable) = maybe_highest_privileges {
         if !is_writable && is_writable != account_meta.is_writable {
             // Existing account is *NOT* writable already, but the CPI
             // wants it to be, so de-escalate to not be writable
             account_meta.is_writable = false;
         }
     }
+
+    // Always mark an account as a non-signer
+    account_meta.is_signer = false;
 }
 
 /// Stateless helper for storing additional accounts required for an
@@ -67,7 +67,6 @@ fn de_escalate_account_meta(account_meta: &mut AccountMeta, account_metas: &[Acc
 /// ```rust
 /// use {
 ///     futures_util::TryFutureExt,
-///     solana_client::nonblocking::rpc_client::RpcClient,
 ///     solana_account_info::AccountInfo,
 ///     solana_instruction::{AccountMeta, Instruction},
 ///     solana_pubkey::Pubkey,
@@ -120,24 +119,14 @@ fn de_escalate_account_meta(account_meta: &mut AccountMeta, account_metas: &[Acc
 ///
 /// // Off-chain, you can add the additional accounts directly from the account data
 /// // You need to provide the resolver a way to fetch account data off-chain
-/// struct MyClient {
-///     client: RpcClient,
-/// }
+/// struct MyClient;
 /// impl MyClient {
-///     pub fn new() -> Self {
-///         Self {
-///             client: RpcClient::new_mock("succeeds".to_string()),
-///         }
-///     }
 ///     pub async fn get_account_data(&self, address: Pubkey) -> AccountDataResult {
-///         self.client.get_account(&address)
-///             .await
-///             .map(|acct| Some(acct.data))
-///             .map_err(|e| Box::new(e) as AccountFetchError)
+///         Ok(None)
 ///     }
 /// }
 ///
-/// let client = MyClient::new();
+/// let client = MyClient;
 /// let program_id = Pubkey::new_unique();
 /// let mut instruction = Instruction::new_with_bytes(program_id, &[0, 1, 2], vec![]);
 /// # futures::executor::block_on(async {
@@ -170,9 +159,9 @@ impl ExtraAccountMetaList {
         extra_account_metas: &[ExtraAccountMeta],
     ) -> Result<(), ProgramError> {
         let mut state = TlvStateMut::unpack(data).unwrap();
-        let tlv_size = PodSlice::<ExtraAccountMeta>::size_of(extra_account_metas.len())?;
+        let tlv_size = ListView::<ExtraAccountMeta>::size_of(extra_account_metas.len())?;
         let (bytes, _) = state.alloc::<T>(tlv_size, false)?;
-        let mut validation_data = PodSliceMut::init(bytes)?;
+        let mut validation_data = ListView::<ExtraAccountMeta>::init(bytes)?;
         for meta in extra_account_metas {
             validation_data.push(*meta)?;
         }
@@ -186,31 +175,31 @@ impl ExtraAccountMetaList {
         extra_account_metas: &[ExtraAccountMeta],
     ) -> Result<(), ProgramError> {
         let mut state = TlvStateMut::unpack(data).unwrap();
-        let tlv_size = PodSlice::<ExtraAccountMeta>::size_of(extra_account_metas.len())?;
+        let tlv_size = ListView::<ExtraAccountMeta>::size_of(extra_account_metas.len())?;
         let bytes = state.realloc_first::<T>(tlv_size)?;
-        let mut validation_data = PodSliceMut::init(bytes)?;
+        let mut validation_data = ListView::<ExtraAccountMeta>::init(bytes)?;
         for meta in extra_account_metas {
             validation_data.push(*meta)?;
         }
         Ok(())
     }
 
-    /// Get the underlying `PodSlice<ExtraAccountMeta>` from an unpacked TLV
+    /// Get the underlying `ListViewReadOnly<ExtraAccountMeta>` from an unpacked TLV
     ///
     /// Due to lifetime annoyances, this function can't just take in the bytes,
     /// since then we would be returning a reference to a locally created
     /// `TlvStateBorrowed`. I hope there's a better way to do this!
     pub fn unpack_with_tlv_state<'a, T: SplDiscriminate>(
         tlv_state: &'a TlvStateBorrowed,
-    ) -> Result<PodSlice<'a, ExtraAccountMeta>, ProgramError> {
+    ) -> Result<list::ListViewReadOnly<'a, ExtraAccountMeta, PodU32>, ProgramError> {
         let bytes = tlv_state.get_first_bytes::<T>()?;
-        PodSlice::<ExtraAccountMeta>::unpack(bytes)
+        ListView::<ExtraAccountMeta>::unpack(bytes)
     }
 
     /// Get the byte size required to hold `num_items` items
     pub fn size_of(num_items: usize) -> Result<usize, ProgramError> {
         Ok(TlvStateBorrowed::get_base_len()
-            .saturating_add(PodSlice::<ExtraAccountMeta>::size_of(num_items)?))
+            .saturating_add(ListView::<ExtraAccountMeta>::size_of(num_items)?))
     }
 
     /// Checks provided account infos against validation data, using
@@ -227,9 +216,8 @@ impl ExtraAccountMetaList {
     ) -> Result<(), ProgramError> {
         let state = TlvStateBorrowed::unpack(data).unwrap();
         let extra_meta_list = ExtraAccountMetaList::unpack_with_tlv_state::<T>(&state)?;
-        let extra_account_metas = extra_meta_list.data();
 
-        let initial_accounts_len = account_infos.len() - extra_account_metas.len();
+        let initial_accounts_len = account_infos.len() - extra_meta_list.len();
 
         // Convert to `AccountMeta` to check resolved metas
         let provided_metas = account_infos
@@ -237,7 +225,7 @@ impl ExtraAccountMetaList {
             .map(account_info_to_meta)
             .collect::<Vec<_>>();
 
-        for (i, config) in extra_account_metas.iter().enumerate() {
+        for (i, config) in extra_meta_list.iter().enumerate() {
             let meta = {
                 // Create a list of `Ref`s so we can reference account data in the
                 // resolution step
@@ -281,7 +269,7 @@ impl ExtraAccountMetaList {
     {
         let state = TlvStateBorrowed::unpack(data)?;
         let bytes = state.get_first_bytes::<T>()?;
-        let extra_account_metas = PodSlice::<ExtraAccountMeta>::unpack(bytes)?;
+        let extra_account_metas = ListView::<ExtraAccountMeta>::unpack(bytes)?;
 
         // Fetch account data for each of the instruction accounts
         let mut account_key_datas = vec![];
@@ -294,7 +282,7 @@ impl ExtraAccountMetaList {
             account_key_datas.push((meta.pubkey, account_data));
         }
 
-        for extra_meta in extra_account_metas.data().iter() {
+        for extra_meta in extra_account_metas.iter() {
             let mut meta =
                 extra_meta.resolve(&instruction.data, &instruction.program_id, |usize| {
                     account_key_datas
@@ -326,9 +314,9 @@ impl ExtraAccountMetaList {
     ) -> Result<(), ProgramError> {
         let state = TlvStateBorrowed::unpack(data)?;
         let bytes = state.get_first_bytes::<T>()?;
-        let extra_account_metas = PodSlice::<ExtraAccountMeta>::unpack(bytes)?;
+        let extra_account_metas = ListView::<ExtraAccountMeta>::unpack(bytes)?;
 
-        for extra_meta in extra_account_metas.data().iter() {
+        for extra_meta in extra_account_metas.iter() {
             let mut meta = {
                 // Create a list of `Ref`s so we can reference account data in the
                 // resolution step
@@ -373,7 +361,6 @@ mod tests {
         crate::{pubkey_data::PubkeyData, seeds::Seed},
         ethnum::U256,
         solana_instruction::AccountMeta,
-        solana_program_test::tokio,
         solana_pubkey::Pubkey,
         spl_discriminator::{ArrayDiscriminator, SplDiscriminate},
         std::collections::HashMap,
@@ -411,6 +398,20 @@ mod tests {
         }
     }
 
+    /// Helper to convert an `AccountInfo` to an `AccountMeta`
+    fn account_info_to_meta_non_signer(account_info: &AccountInfo) -> AccountMeta {
+        AccountMeta {
+            pubkey: *account_info.key,
+            is_signer: false,
+            is_writable: account_info.is_writable,
+        }
+    }
+
+    fn de_escalate_signer(mut account_meta: AccountMeta) -> AccountMeta {
+        account_meta.is_signer = false;
+        account_meta
+    }
+
     #[tokio::test]
     async fn init_with_metas() {
         let metas = [
@@ -437,7 +438,7 @@ mod tests {
 
         let check_metas = metas
             .iter()
-            .map(|e| AccountMeta::try_from(e).unwrap())
+            .map(|e| de_escalate_signer(AccountMeta::try_from(e).unwrap()))
             .collect::<Vec<_>>();
 
         assert_eq!(instruction.accounts, check_metas,);
@@ -466,7 +467,6 @@ mod tests {
                 &mut data1,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &pubkey2,
@@ -476,7 +476,6 @@ mod tests {
                 &mut data2,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &pubkey3,
@@ -486,7 +485,6 @@ mod tests {
                 &mut data3,
                 &owner,
                 false,
-                0,
             ),
         ];
 
@@ -539,9 +537,9 @@ mod tests {
 
         // Convert to `AccountMeta` to check instruction
         let check_metas = [
-            account_info_to_meta(&account_infos[0]),
-            account_info_to_meta(&account_infos[1]),
-            account_info_to_meta(&account_infos[2]),
+            account_info_to_meta_non_signer(&account_infos[0]),
+            account_info_to_meta_non_signer(&account_infos[1]),
+            account_info_to_meta_non_signer(&account_infos[2]),
             AccountMeta::new(check_required_pda, false),
         ];
 
@@ -628,10 +626,10 @@ mod tests {
         )
         .0;
         let check_metas = [
-            ix_account1,
-            ix_account2,
-            extra_meta1,
-            extra_meta2,
+            ix_account1, // not de-escalated since it's not extra
+            ix_account2, // not de-escalated since it's not extra
+            de_escalate_signer(extra_meta1),
+            de_escalate_signer(extra_meta2),
             AccountMeta::new(check_extra_meta3_pubkey, false),
             AccountMeta::new(check_extra_meta4_pubkey, false),
         ];
@@ -757,10 +755,10 @@ mod tests {
         )
         .0;
         let check_metas = [
-            extra_meta1,
-            extra_meta2,
-            extra_meta3,
-            extra_meta4,
+            de_escalate_signer(extra_meta1),
+            de_escalate_signer(extra_meta2),
+            de_escalate_signer(extra_meta3),
+            de_escalate_signer(extra_meta4),
             AccountMeta::new(check_extra_meta5_pubkey, false),
             AccountMeta::new(check_extra_meta6_pubkey, false),
         ];
@@ -847,7 +845,6 @@ mod tests {
                 &mut data1,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &pubkey2,
@@ -857,7 +854,6 @@ mod tests {
                 &mut data2,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &pubkey3,
@@ -867,7 +863,6 @@ mod tests {
                 &mut data3,
                 &owner,
                 false,
-                0,
             ),
         ];
 
@@ -957,7 +952,7 @@ mod tests {
 
         let test_ix_check_metas = account_infos
             .iter()
-            .map(account_info_to_meta)
+            .map(account_info_to_meta_non_signer)
             .collect::<Vec<_>>();
         assert_eq!(instruction.accounts, test_ix_check_metas,);
 
@@ -1003,10 +998,10 @@ mod tests {
         .0;
 
         let test_other_ix_check_metas = vec![
-            extra_meta1,
-            extra_meta2,
-            extra_meta3,
-            extra_meta4,
+            de_escalate_signer(extra_meta1),
+            de_escalate_signer(extra_meta2),
+            de_escalate_signer(extra_meta3),
+            de_escalate_signer(extra_meta4),
             AccountMeta::new(check_extra_meta5_pubkey, false),
             AccountMeta::new(check_extra_meta6_pubkey, false),
             AccountMeta::new(instruction_key_data_pubkey_arg, false),
@@ -1244,7 +1239,6 @@ mod tests {
                 &mut data_ix_1,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &pubkey_ix_2,
@@ -1254,7 +1248,6 @@ mod tests {
                 &mut data_ix_2,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &extra_meta1.pubkey,
@@ -1264,7 +1257,6 @@ mod tests {
                 &mut data1,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &extra_meta2.pubkey,
@@ -1274,7 +1266,6 @@ mod tests {
                 &mut data2,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &extra_meta3.pubkey,
@@ -1284,7 +1275,6 @@ mod tests {
                 &mut data3,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &check_required_pda1_pubkey,
@@ -1294,7 +1284,6 @@ mod tests {
                 &mut data_pda1,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &check_required_pda2_pubkey,
@@ -1304,7 +1293,6 @@ mod tests {
                 &mut data_pda2,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &check_required_pda3_pubkey,
@@ -1314,7 +1302,6 @@ mod tests {
                 &mut data_pda3,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &check_required_pda4_pubkey,
@@ -1324,7 +1311,6 @@ mod tests {
                 &mut data_pda4,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &check_key_data1_pubkey,
@@ -1334,7 +1320,6 @@ mod tests {
                 &mut data_key_data1,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &check_key_data2_pubkey,
@@ -1344,7 +1329,6 @@ mod tests {
                 &mut data_key_data2,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &check_key_data3_pubkey,
@@ -1354,7 +1338,6 @@ mod tests {
                 &mut data_key_data3,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &pubkey_arb_1,
@@ -1364,7 +1347,6 @@ mod tests {
                 &mut data_arb_1,
                 &owner,
                 false,
-                0,
             ),
             AccountInfo::new(
                 &pubkey_arb_2,
@@ -1374,7 +1356,6 @@ mod tests {
                 &mut data_arb_2,
                 &owner,
                 false,
-                0,
             ),
         ];
 
@@ -1461,9 +1442,8 @@ mod tests {
         let state = TlvStateBorrowed::unpack(buffer).unwrap();
         let unpacked_metas_pod =
             ExtraAccountMetaList::unpack_with_tlv_state::<TestInstruction>(&state).unwrap();
-        let unpacked_metas = unpacked_metas_pod.data();
         assert_eq!(
-            unpacked_metas, updated_metas,
+            &*unpacked_metas_pod, updated_metas,
             "The ExtraAccountMetas in the buffer should match the expected ones."
         );
 
@@ -1503,7 +1483,7 @@ mod tests {
         ];
         let check_metas_1 = updated_metas_1
             .iter()
-            .map(|e| AccountMeta::try_from(e).unwrap())
+            .map(|e| de_escalate_signer(AccountMeta::try_from(e).unwrap()))
             .collect::<Vec<_>>();
         update_and_assert_metas(program_id, &mut buffer, &updated_metas_1, &check_metas_1).await;
 
@@ -1515,7 +1495,7 @@ mod tests {
         ];
         let check_metas_2 = updated_metas_2
             .iter()
-            .map(|e| AccountMeta::try_from(e).unwrap())
+            .map(|e| de_escalate_signer(AccountMeta::try_from(e).unwrap()))
             .collect::<Vec<_>>();
         update_and_assert_metas(program_id, &mut buffer, &updated_metas_2, &check_metas_2).await;
 
@@ -1524,7 +1504,7 @@ mod tests {
             [ExtraAccountMeta::new_with_pubkey(&Pubkey::new_unique(), true, true).unwrap()];
         let check_metas_3 = updated_metas_3
             .iter()
-            .map(|e| AccountMeta::try_from(e).unwrap())
+            .map(|e| de_escalate_signer(AccountMeta::try_from(e).unwrap()))
             .collect::<Vec<_>>();
         update_and_assert_metas(program_id, &mut buffer, &updated_metas_3, &check_metas_3).await;
 
@@ -1553,7 +1533,7 @@ mod tests {
         )
         .0;
         let check_metas_4 = [
-            AccountMeta::new(seed_pubkey, true),
+            AccountMeta::new(seed_pubkey, false),
             AccountMeta::new(simple_pda, false),
         ];
 
@@ -1635,7 +1615,6 @@ mod tests {
                 &mut data_ix_1,
                 &owner,
                 false,
-                0,
             ),
             // Instruction account 2
             AccountInfo::new(
@@ -1646,7 +1625,6 @@ mod tests {
                 &mut data_ix_2,
                 &owner,
                 false,
-                0,
             ),
             // Required account 1
             AccountInfo::new(
@@ -1657,7 +1635,6 @@ mod tests {
                 &mut data1,
                 &owner,
                 false,
-                0,
             ),
             // Required account 2
             AccountInfo::new(
@@ -1668,19 +1645,9 @@ mod tests {
                 &mut data2,
                 &owner,
                 false,
-                0,
             ),
             // Required account 3 (PDA)
-            AccountInfo::new(
-                &pda,
-                false,
-                true,
-                &mut lamports3,
-                &mut data3,
-                &owner,
-                false,
-                0,
-            ),
+            AccountInfo::new(&pda, false, true, &mut lamports3, &mut data3, &owner, false),
             // Required account 4 (pubkey data)
             AccountInfo::new(
                 &key_data_pubkey,
@@ -1690,7 +1657,6 @@ mod tests {
                 &mut data4,
                 &owner,
                 false,
-                0,
             ),
         ];
 
