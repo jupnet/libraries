@@ -2,6 +2,7 @@
 #[cfg(feature = "borsh")]
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 use bytemuck_derive::{Pod, Zeroable};
+use ethnum::U256;
 #[cfg(feature = "serde-traits")]
 use serde::{Deserialize, Serialize};
 
@@ -126,6 +127,100 @@ impl_int_conversion!(PodI64, i64);
 #[repr(transparent)]
 pub struct PodU128(pub [u8; 16]);
 impl_int_conversion!(PodU128, u128);
+
+/// `U256` type that can be used in Pods
+#[cfg_attr(
+    feature = "borsh",
+    derive(BorshDeserialize, BorshSerialize, BorshSchema)
+)]
+#[cfg_attr(feature = "serde-traits", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde-traits", serde(from = "U256", into = "U256"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+#[repr(transparent)]
+pub struct PodU256(pub [u8; 32]);
+
+impl PodU256 {
+    /// Creates a new PodU256 from raw bytes in little-endian format
+    pub const fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Creates a new PodU256 from a u128 value
+    pub const fn from_u128(value: u128) -> Self {
+        let mut bytes = [0u8; 32];
+        let value_bytes = value.to_le_bytes();
+        let mut i = 0;
+        while i < 16 {
+            bytes[i] = value_bytes[i];
+            i += 1;
+        }
+        Self(bytes)
+    }
+
+    /// Creates a new PodU256 from a u64 value
+    pub const fn from_u64(value: u64) -> Self {
+        let mut bytes = [0u8; 32];
+        let value_bytes = value.to_le_bytes();
+        let mut i = 0;
+        while i < 8 {
+            bytes[i] = value_bytes[i];
+            i += 1;
+        }
+        Self(bytes)
+    }
+}
+
+impl From<U256> for PodU256 {
+    fn from(n: U256) -> Self {
+        Self(n.to_le_bytes())
+    }
+}
+
+impl From<PodU256> for U256 {
+    fn from(pod: PodU256) -> Self {
+        Self::from_le_bytes(pod.0)
+    }
+}
+
+impl From<u64> for PodU256 {
+    fn from(n: u64) -> Self {
+        Self::from_u64(n)
+    }
+}
+
+impl From<PodU256> for u64 {
+    fn from(pod: PodU256) -> Self {
+        // Convert PodU256 to U256 first, then to u64
+        let u256_value = U256::from(pod);
+        u256_value.try_into().unwrap_or(0) // If value is too large, return 0
+    }
+}
+
+impl From<PodU64> for U256 {
+    fn from(pod: PodU64) -> Self {
+        let value: u64 = pod.into();
+        value.into()
+    }
+}
+
+impl From<U256> for PodU64 {
+    fn from(n: U256) -> Self {
+        if n > U256::from(u64::MAX) {
+            panic!(
+                "attempted to convert U256 value {} which is larger than u64::MAX",
+                n
+            );
+        }
+        Self::from(n.as_u64())
+    }
+}
+
+impl From<PodU64> for PodU256 {
+    fn from(pod: PodU64) -> Self {
+        let value: u64 = pod.into();
+        value.into()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -265,5 +360,65 @@ mod tests {
 
         let deserialized = serde_json::from_str::<PodU128>(&serialized).unwrap();
         assert_eq!(pod_u128, deserialized);
+    }
+
+    #[test]
+    fn test_pod_u256() {
+        assert!(pod_from_bytes::<PodU256>(&[]).is_err());
+        assert_eq!(
+            U256::from(1u64),
+            U256::from(
+                *pod_from_bytes::<PodU256>(&[
+                    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0
+                ])
+                .unwrap()
+            )
+        );
+    }
+
+    #[cfg(feature = "serde-traits")]
+    #[test]
+    fn test_pod_u256_serde() {
+        let pod_u256: PodU256 = u256::MAX.into();
+
+        let serialized = serde_json::to_string(&pod_u256).unwrap();
+        assert_eq!(&serialized, "340282366920938463463374607431768211455");
+
+        let deserialized = serde_json::from_str::<PodU256>(&serialized).unwrap();
+        assert_eq!(pod_u256, deserialized);
+    }
+
+    #[test]
+    fn test_u256_pod_conversions() {
+        // Test u64 -> U256 -> PodU64 conversion
+        let original_u64 = 12345u64;
+        let u256_value = U256::from(original_u64);
+        let pod_u64: PodU64 = u256_value.into();
+        assert_eq!(u64::from(pod_u64), original_u64);
+
+        // Test max u64 conversion
+        let max_u64 = u64::MAX;
+        let u256_max = U256::from(max_u64);
+        let pod_u64_max: PodU64 = u256_max.into();
+        assert_eq!(u64::from(pod_u64_max), max_u64);
+
+        // Test U256 -> PodU256 -> u64 conversion
+        let small_u256 = U256::from(54321u64);
+        let pod_u256: PodU256 = small_u256.into();
+        let converted_u64: u64 = pod_u256.into();
+        assert_eq!(converted_u64, 54321u64);
+
+        // Test PodU64 -> U256 conversion
+        let pod_u64 = PodU64::from(9999u64);
+        let converted_u256: U256 = pod_u64.into();
+        assert_eq!(converted_u256, U256::from(9999u64));
+    }
+
+    #[test]
+    #[should_panic(expected = "attempted to convert U256 value")]
+    fn test_u256_pod_overflow() {
+        let large_u256 = U256::from(u64::MAX) + U256::from(1u64);
+        let _should_panic: PodU64 = large_u256.into();
     }
 }
