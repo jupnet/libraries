@@ -16,10 +16,10 @@ num-derive = "0.4"
 num_enum = "0.7"
 num-traits = "0.2"
 serde = { version = "1.0.228", optional = true }
-solana-account-info = "3.0.0"
-solana-instruction = { version = "3.0.0", features = ["std"] }
-solana-program-error = "3.0.0"
-solana-pubkey = { version = "3.0.0", features = ["curve25519"] }
+solana-account-info = { git = "https://github.com/jupnet/jupnet-sdk" }
+solana-instruction = { git = "https://github.com/jupnet/jupnet-sdk", features = ["std"] }
+solana-program-error = { git = "https://github.com/jupnet/jupnet-sdk" }
+solana-pubkey = { git = "https://github.com/jupnet/jupnet-sdk", features = ["curve25519"] }
 spl-discriminator = { version = "0.5.1", path = "../discriminator" }
 spl-program-error = { version = "0.8.0", path = "../program-error" }
 spl-pod = { version = "0.7.1", path = "../pod" }
