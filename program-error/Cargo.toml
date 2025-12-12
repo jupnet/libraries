@@ -14,7 +14,7 @@ num-traits = "0.2"
 solana-msg = { git = "https://github.com/jupnet/jupnet-sdk" }
 solana-program-error = { git = "https://github.com/jupnet/jupnet-sdk" }
 spl-program-error-derive = { version = "0.6.0", path = "../program-error-derive" }
-thiserror = "2.0"
+thiserror = "^2.0"
 
 [dev-dependencies]
 lazy_static = "1.5"

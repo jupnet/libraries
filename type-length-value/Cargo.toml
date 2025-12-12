@@ -22,7 +22,7 @@ solana-program-error = { git = "https://github.com/jupnet/jupnet-sdk" }
 spl-discriminator = { version = "0.5.1", path = "../discriminator" }
 spl-type-length-value-derive = { version = "0.2", path = "../type-length-value-derive", optional = true }
 spl-pod = { version = "0.7.1", path = "../pod" }
-thiserror = "2.0"
+thiserror = "^2.0"
 
 [lib]
 crate-type = ["lib"]
