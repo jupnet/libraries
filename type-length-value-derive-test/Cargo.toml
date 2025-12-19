@@ -10,7 +10,7 @@ publish = false
 
 [dev-dependencies]
 borsh = "1.5.7"
-solana-borsh = { git = "https://github.com/jupnet/jupnet-sdk", branch = "main" }
+solana-borsh = { git = "https://github.com/jupnet/jupnet-sdk", branch = "fix/sdk-deps" }
 spl-discriminator = { version = "0.5.1", path = "../discriminator" }
 spl-type-length-value = { version = "0.9.0", path = "../type-length-value", features = [
   "derive",

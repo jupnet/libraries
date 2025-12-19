@@ -11,8 +11,8 @@ edition = "2021"
 num-derive = "0.4"
 num_enum = "0.7"
 num-traits = "0.2"
-solana-msg = { git = "https://github.com/jupnet/jupnet-sdk", branch = "main" }
-solana-program-error = { git = "https://github.com/jupnet/jupnet-sdk", branch = "main" }
+solana-msg = { git = "https://github.com/jupnet/jupnet-sdk", branch = "fix/sdk-deps" }
+solana-program-error = { git = "https://github.com/jupnet/jupnet-sdk", branch = "fix/sdk-deps" }
 spl-program-error-derive = { version = "0.6.0", path = "../program-error-derive" }
 thiserror = "^2.0"
 
