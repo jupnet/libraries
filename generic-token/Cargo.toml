@@ -9,7 +9,7 @@ edition = "2021"
 
 [dependencies]
 bytemuck = "1.24.0"
-solana-pubkey = { git = "https://github.com/jupnet/jupnet-sdk", branch = "fix/sdk-deps", default-features = false, features = [
+solana-pubkey = { git = "https://github.com/jupnet/jupnet-sdk", branch = "fix/sdk-deps-test", default-features = false, features = [
     "bytemuck",
 ] }
 
