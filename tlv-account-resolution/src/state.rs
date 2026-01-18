@@ -824,7 +824,7 @@ mod tests {
     #[tokio::test]
     async fn init_mixed() {
         let extra_meta5_literal_str = "seed_prefix";
-        let extra_meta6_literal_u256 = U256::from(28_u64);
+        let extra_meta6_literal_u64 = 28u64;
 
         let pubkey1 = Pubkey::new_unique();
         let mut lamports1 = 0;
@@ -892,10 +892,10 @@ mod tests {
         let extra_meta6 = ExtraAccountMeta::new_with_seeds(
             &[
                 Seed::Literal {
-                    bytes: extra_meta6_literal_u256.to_le_bytes().to_vec(),
+                    bytes: extra_meta6_literal_u64.to_le_bytes().to_vec(),
                 },
                 Seed::AccountKey { index: 1 },
-                Seed::AccountKey { index: 8 },
+                Seed::AccountKey { index: 4 },
             ],
             false,
             true,
@@ -989,7 +989,7 @@ mod tests {
 
         let check_extra_meta6_pubkey = Pubkey::find_program_address(
             &[
-                extra_meta6_literal_u256.to_le_bytes().as_ref(),
+                extra_meta6_literal_u64.to_le_bytes().as_ref(),
                 extra_meta2.pubkey.as_ref(),
                 check_extra_meta5_pubkey.as_ref(), // The first PDA should be at index 4
             ],
@@ -1040,7 +1040,7 @@ mod tests {
         // Define instruction data
         //  - 0: u8
         //  - 1-8: [u8; 8]
-        //  - 9-16: u256
+        //  - 9-40: u256
         let instruction_u8array_arg = [1, 2, 3, 4, 5, 6, 7, 8];
         let instruction_u256_arg = U256::from(208_u64);
         let mut instruction_data = vec![0];
@@ -1121,7 +1121,7 @@ mod tests {
             )
             .unwrap(),
             ExtraAccountMeta::new_with_pubkey_data(
-                &PubkeyData::InstructionData { index: 17 },
+                &PubkeyData::InstructionData { index: 41 },  // After U256 (9-40)
                 false,
                 true,
             )
