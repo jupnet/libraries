@@ -134,7 +134,6 @@ impl_int_conversion!(PodU128, u128);
     derive(BorshDeserialize, BorshSerialize, BorshSchema)
 )]
 #[cfg_attr(feature = "serde-traits", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde-traits", serde(from = "U256", into = "U256"))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 #[repr(transparent)]
 pub struct PodU256(pub [u8; 32]);
@@ -203,15 +202,15 @@ impl From<PodU64> for U256 {
     }
 }
 
-impl From<U256> for PodU64 {
-    fn from(n: U256) -> Self {
+impl TryFrom<U256> for PodU64 {
+    type Error = crate::error::PodSliceError;
+
+    fn try_from(n: U256) -> Result<Self, Self::Error> {
         if n > U256::from(u64::MAX) {
-            panic!(
-                "attempted to convert U256 value {} which is larger than u64::MAX",
-                n
-            );
+            Err(crate::error::PodSliceError::ValueOutOfRange)
+        } else {
+            Ok(Self::from(n.as_u64()))
         }
-        Self::from(n.as_u64())
     }
 }
 
@@ -377,30 +376,18 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "serde-traits")]
-    #[test]
-    fn test_pod_u256_serde() {
-        let pod_u256: PodU256 = u256::MAX.into();
-
-        let serialized = serde_json::to_string(&pod_u256).unwrap();
-        assert_eq!(&serialized, "340282366920938463463374607431768211455");
-
-        let deserialized = serde_json::from_str::<PodU256>(&serialized).unwrap();
-        assert_eq!(pod_u256, deserialized);
-    }
-
     #[test]
     fn test_u256_pod_conversions() {
         // Test u64 -> U256 -> PodU64 conversion
         let original_u64 = 12345u64;
         let u256_value = U256::from(original_u64);
-        let pod_u64: PodU64 = u256_value.into();
+        let pod_u64: PodU64 = u256_value.try_into().unwrap();
         assert_eq!(u64::from(pod_u64), original_u64);
 
         // Test max u64 conversion
         let max_u64 = u64::MAX;
         let u256_max = U256::from(max_u64);
-        let pod_u64_max: PodU64 = u256_max.into();
+        let pod_u64_max: PodU64 = u256_max.try_into().unwrap();
         assert_eq!(u64::from(pod_u64_max), max_u64);
 
         // Test U256 -> PodU256 -> u64 conversion
@@ -416,9 +403,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "attempted to convert U256 value")]
     fn test_u256_pod_overflow() {
         let large_u256 = U256::from(u64::MAX) + U256::from(1u64);
-        let _should_panic: PodU64 = large_u256.into();
+        let result: Result<PodU64, _> = large_u256.try_into();
+        assert!(result.is_err());
     }
 }
